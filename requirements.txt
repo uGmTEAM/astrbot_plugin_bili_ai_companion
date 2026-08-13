@@ -1,0 +1,7 @@
+aiohttp
+cryptography
+lunardate
+openai
+Pillow
+qrcode
+yt-dlp
