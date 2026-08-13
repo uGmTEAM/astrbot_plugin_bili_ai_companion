@@ -1,0 +1,235 @@
+"""性格演化系统：每日反思、说话习惯、看法变化。"""
+import re
+import json
+import asyncio
+from datetime import datetime
+from astrbot.api import logger
+from .config import PERSONALITY_FILE
+
+
+class PersonalityMixin:
+    """性格演化。"""
+
+    def _load_personality(self):
+        """加载性格演化数据（若内存未缓存则从磁盘读取）。"""
+        if not hasattr(self, "_personality_cache") or self._personality_cache is None:
+            self._personality_cache = self._load_json(PERSONALITY_FILE, {})
+        # 每次调用都重新读取磁盘最新内容，避免多任务间不一致
+        evo = self._load_json(PERSONALITY_FILE, {})
+        if not isinstance(evo, dict):
+            evo = {}
+        self._personality_cache = evo
+        return evo
+
+    def _get_personality_prompt(self):
+        evo = self._load_json(PERSONALITY_FILE, {})
+        if not evo:
+            return ""
+        parts = []
+        traits = evo.get("evolved_traits", [])
+        if traits:
+            parts.append("【最近的成长变化】")
+            for t in traits[-3:]:
+                parts.append(f"- {t['change']}")
+        habits = evo.get("speech_habits", [])
+        if habits:
+            parts.append("【当前说话习惯】" + "；".join(habits))
+        opinions = evo.get("opinions", [])
+        if opinions:
+            parts.append("【对事物的看法】" + "；".join(opinions))
+        return "\n".join(parts) if parts else ""
+
+    def _parse_evolve_json(self, raw_text, old_habits, old_opinions):
+        text = self._repair_llm_json(raw_text)
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+        # 渐进截断：从末尾逐步移除不完整内容再尝试闭合
+        json_start = text.find('{')
+        if json_start != -1:
+            fragment = text[json_start:]
+            # 尝试移除最后一个不完整的键值对再闭合
+            for pattern in [
+                r',\s*"[^"]*"?\s*:?\s*(?:\[[^\]]*)?$',  # 截断的key:value
+                r',\s*"[^"]*$',                          # 截断的字符串
+                r',\s*$',                                # 尾逗号
+            ]:
+                cleaned = re.sub(pattern, '', fragment)
+                # 尝试直接闭合所有开放的括号
+                for suffix in [']}', '}', ']}', '"]}', '"]}}']:
+                    try:
+                        return json.loads(cleaned + suffix)
+                    except json.JSONDecodeError:
+                        continue
+        logger.warning(f"[BiliBot] 性格演化JSON解析失败：{raw_text[:200]}")
+        # regex 提取各字段兜底
+        reflection = ""
+        rm = re.search(r'"reflection"\s*:\s*"([^"]*)"', text)
+        if rm:
+            reflection = rm.group(1)
+        new_trait = ""
+        tm = re.search(r'"new_trait"\s*:\s*"([^"]*)"', text)
+        if tm:
+            new_trait = tm.group(1)
+        trigger = ""
+        trm = re.search(r'"trigger"\s*:\s*"([^"]*)"', text)
+        if trm:
+            trigger = trm.group(1)
+        return {
+            "new_trait": new_trait, "trigger": trigger,
+            "speech_habits": old_habits, "opinions": old_opinions,
+            "reflection": reflection or "今天的反思没能整理好...",
+        }
+
+    async def _maybe_evolve_personality(self):
+        if not self.config.get("ENABLE_PERSONALITY_EVOLUTION", True):
+            return
+        evo = self._load_json(PERSONALITY_FILE, {})
+        today = datetime.now().strftime("%Y-%m-%d")
+        if evo.get("last_evolve", "")[:10] == today:
+            return
+        evolve_hour = self.config.get("EVOLVE_HOUR", 1)
+        if datetime.now().hour != evolve_hour:
+            return
+        logger.info("[BiliBot] 🌱 开始每日性格演化反思...")
+        recent = sorted(self._memory, key=lambda x: x.get("time", ""), reverse=True)[:30]
+        if len(recent) < 5:
+            logger.info("[BiliBot] 🌱 记忆太少，跳过演化")
+            evo["last_evolve"] = today
+            self._save_json(PERSONALITY_FILE, evo)
+            return
+        recent_texts = "\n".join([m["text"] for m in recent[:20]])
+        old_traits = evo.get("evolved_traits", [])
+        old_habits = evo.get("speech_habits", [])
+        old_opinions = evo.get("opinions", [])
+        sp = await self._get_system_prompt()
+        on = self.config.get("OWNER_NAME", "") or "主人"
+        default_evolve_prompt = """现在是睡前反思时间。请根据你最近的互动经历，思考自己有没有发生什么变化。
+
+【之前已经发生的变化】
+{old_traits}
+
+【当前说话习惯】
+{old_habits}
+
+【当前对事物的看法】
+{old_opinions}
+
+【最近的互动记录】
+{recent_texts}
+
+请思考：
+1. 最近的经历有没有让你的语气或说话方式产生微妙变化？
+2. 有没有形成新的说话习惯？
+3. 对什么事物产生了新的看法？
+
+注意：变化应该是微妙的、渐进的，不要突变。如果没什么变化就如实说。
+
+请以JSON格式回复：
+{{"new_trait": "新的变化描述（没有就留空）", "trigger": "什么触发了这个变化", "speech_habits": ["当前所有说话习惯，含旧的，最多5条"], "opinions": ["当前所有看法，含旧的，最多5条"], "reflection": "一句话的睡前感想"}}"""
+        custom_prompt = self.config.get("EVOLVE_PROMPT", "").strip()
+        tpl = custom_prompt if custom_prompt else default_evolve_prompt
+        fmt_args = dict(
+            old_traits=json.dumps(old_traits[-5:], ensure_ascii=False) if old_traits else "暂无",
+            old_habits=json.dumps(old_habits, ensure_ascii=False) if old_habits else "暂无",
+            old_opinions=json.dumps(old_opinions, ensure_ascii=False) if old_opinions else "暂无",
+            recent_texts=recent_texts,
+            owner_name=on,
+        )
+        try:
+            prompt = tpl.format(**fmt_args)
+        except (KeyError, IndexError, ValueError) as e:
+            # 自定义 EVOLVE_PROMPT 含未转义花括号（如 JSON 示例）时回退默认模板
+            logger.warning(f"[BiliBot] EVOLVE_PROMPT 模板格式化失败（{e}），已回退默认模板；JSON示例的花括号需写成双花括号")
+            prompt = default_evolve_prompt.format(**fmt_args)
+        max_retries = self.config.get("EVOLVE_MAX_RETRIES", 2)
+        for attempt in range(max_retries):
+            try:
+                text = await self._llm_call(prompt, system_prompt=sp, max_tokens=1024)
+                if not text:
+                    raise ValueError("LLM返回空")
+                result = self._parse_evolve_json(text, old_habits, old_opinions)
+                if not result.get("new_trait") and result.get("reflection") == "今天的反思没能整理好...":
+                    raise ValueError(f"JSON解析兜底：{text[:100]}")
+                new_trait = result.get("new_trait", "")
+                if new_trait:
+                    old_traits.append({"time": today, "change": new_trait, "trigger": result.get("trigger", "")})
+                    old_traits = old_traits[-10:]
+                evo = {
+                    "version": evo.get("version", 0) + 1,
+                    "last_evolve": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                    "evolved_traits": old_traits,
+                    "speech_habits": result.get("speech_habits", old_habits)[-5:],
+                    "opinions": result.get("opinions", old_opinions)[-5:],
+                    "last_reflection": result.get("reflection", ""),
+                }
+                self._save_json(PERSONALITY_FILE, evo)
+                if new_trait:
+                    logger.info(f"[BiliBot] 🌱 性格演化：{new_trait}")
+                else:
+                    logger.info("[BiliBot] 🌱 今日无明显变化")
+                logger.info(f"[BiliBot] 🌱 反思：{result.get('reflection', '')}")
+                return
+            except Exception as e:
+                logger.warning(f"[BiliBot] 性格演化失败（第{attempt + 1}/{max_retries}次）：{e}")
+                if attempt < max_retries - 1:
+                    await asyncio.sleep(30)
+        evo["last_evolve"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        self._save_json(PERSONALITY_FILE, evo)
+        logger.error(f"[BiliBot] 🌱 性格演化连续{max_retries}次失败，今日跳过")
+
+    async def _run_personality_evolution(self):
+        """性格演化任务的安全入口（捕获异常，避免后台任务崩溃）。"""
+        try:
+            await self._maybe_evolve_personality()
+        except asyncio.CancelledError:
+            logger.info("[BiliBot] 性格演化任务被取消")
+            raise
+        except Exception as e:
+            logger.error(f"[BiliBot] 性格演化任务异常: {e}")
+
+    def _edit_personality(self, *, speech_habits=None, opinions=None, reflection=None):
+        """手动编辑性格演化数据。
+        - speech_habits: 列表，整体替换说话习惯（最多保留 5 条）
+        - opinions: 列表，整体替换看法（最多保留 5 条）
+        - reflection: 字符串，覆盖 last_reflection
+        返回更新后的 evo dict。"""
+        evo = self._load_json(PERSONALITY_FILE, {})
+        if not isinstance(evo, dict):
+            evo = {}
+        if speech_habits is not None:
+            if not isinstance(speech_habits, list):
+                raise TypeError("speech_habits 必须是列表")
+            evo["speech_habits"] = [str(x).strip() for x in speech_habits if str(x).strip()][-5:]
+        if opinions is not None:
+            if not isinstance(opinions, list):
+                raise TypeError("opinions 必须是列表")
+            evo["opinions"] = [str(x).strip() for x in opinions if str(x).strip()][-5:]
+        if reflection is not None:
+            evo["last_reflection"] = str(reflection)
+        evo["last_evolve"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+        self._save_json(PERSONALITY_FILE, evo)
+        logger.info("[BiliBot] 🌱 性格演化数据已手动编辑")
+        return evo
+
+    def _delete_personality_trait(self, index):
+        """按索引删除一条 evolved_traits 记录（支持负数索引）。
+        返回被删除的 trait 或 None。"""
+        evo = self._load_json(PERSONALITY_FILE, {})
+        if not isinstance(evo, dict):
+            return None
+        traits = evo.get("evolved_traits", []) or []
+        if not traits:
+            return None
+        try:
+            idx = int(index)
+        except (TypeError, ValueError):
+            return None
+        if idx < -len(traits) or idx >= len(traits):
+            return None
+        removed = traits.pop(idx)
+        evo["evolved_traits"] = traits
+        self._save_json(PERSONALITY_FILE, evo)
+        logger.info(f"[BiliBot] 🌱 已删除性格演化记录: {removed.get('change', '')[:50]}")
+        return removed
