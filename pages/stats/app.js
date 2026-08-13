@@ -6,6 +6,14 @@
 // =============================================================
 
 const PLUGIN_NAME = "astrbot_plugin_bili_ai_companion";
+// AstrBot 拓展页约定：bridge endpoint 需带 "page" 前缀，后端路由为 /{plugin}/page/{route}
+const PAGE_ENDPOINT_PREFIX = "page";
+
+// 把调用方传入的 path（如 "status" / "/status" / "actions/start"）规范化为 bridge endpoint（如 "page/status"）
+function buildEndpoint(path) {
+  const clean = String(path).replace(/^\/+/, "");
+  return `${PAGE_ENDPOINT_PREFIX}/${clean}`.replace(/\/+/g, "/");
+}
 
 // ---------------------------------------------------------------------
 // Bridge 获取 + 初始化
@@ -189,11 +197,11 @@ async function fetchJson(path, method, body, qs) {
 // ---------------------------------------------------------------------
 
 async function apiGet(path, params) {
-  return _bridge.apiGet(path, params);
+  return _bridge.apiGet(buildEndpoint(path), params);
 }
 
 async function apiPost(path, body) {
-  return _bridge.apiPost(path, body);
+  return _bridge.apiPost(buildEndpoint(path), body);
 }
 
 // ---------------------------------------------------------------------
