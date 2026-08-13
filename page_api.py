@@ -12,8 +12,9 @@ import time
 from datetime import datetime
 from typing import Any
 
+from quart import jsonify, request
+
 from astrbot.api import logger
-from astrbot.api.web import error_response, json_response, request
 
 from .core.config import (
     PLUGIN_NAME,
@@ -76,10 +77,10 @@ class PluginPageApi:
         payload = {"ok": True, "data": data}
         if extra:
             payload["data"] = {**(payload["data"] or {}), **extra} if isinstance(payload["data"], dict) else extra
-        return json_response(payload)
+        return jsonify(payload)
 
     def _fail(self, msg: str, status: int = 400):
-        return error_response(msg, status_code=status)
+        return jsonify({"ok": False, "error": msg}), status
 
     def _load(self, path, default):
         return self.plugin._load_json(path, default)
@@ -177,14 +178,14 @@ class PluginPageApi:
 
     async def memory_list(self):
         """记忆列表，支持分级筛选与分页。"""
-        level = (request.query.get("level", "") or "").strip()
-        q = (request.query.get("q", "") or "").strip()
+        level = (request.args.get("level", "") or "").strip()
+        q = (request.args.get("q", "") or "").strip()
         try:
-            limit = int(request.query.get("limit", 100) or 100)
+            limit = int(request.args.get("limit", 100) or 100)
         except ValueError:
             limit = 100
         try:
-            offset = int(request.query.get("offset", 0) or 0)
+            offset = int(request.args.get("offset", 0) or 0)
         except ValueError:
             offset = 0
         memory = self._load(MEMORY_FILE, [])
@@ -214,7 +215,7 @@ class PluginPageApi:
     async def permanent_memory_list(self):
         """永久记忆列表。"""
         try:
-            limit = int(request.query.get("limit", 100) or 100)
+            limit = int(request.args.get("limit", 100) or 100)
         except ValueError:
             limit = 100
         items = self._load(PERMANENT_MEMORY_FILE, [])
@@ -267,7 +268,7 @@ class PluginPageApi:
     async def watch_log(self):
         """看视频日志。"""
         try:
-            limit = int(request.query.get("limit", 50) or 50)
+            limit = int(request.args.get("limit", 50) or 50)
         except ValueError:
             limit = 50
         log = self._load(WATCH_LOG_FILE, [])
@@ -278,7 +279,7 @@ class PluginPageApi:
     async def dynamic_log(self):
         """动态日志。"""
         try:
-            limit = int(request.query.get("limit", 50) or 50)
+            limit = int(request.args.get("limit", 50) or 50)
         except ValueError:
             limit = 50
         log = self._load(DYNAMIC_LOG_FILE, [])
@@ -289,7 +290,7 @@ class PluginPageApi:
     async def reply_log(self):
         """回复日志。"""
         try:
-            limit = int(request.query.get("limit", 50) or 50)
+            limit = int(request.args.get("limit", 50) or 50)
         except ValueError:
             limit = 50
         log = self._load(REPLY_LOG_FILE, [])
@@ -300,7 +301,7 @@ class PluginPageApi:
     async def bangumi_log(self):
         """番剧日志。"""
         try:
-            limit = int(request.query.get("limit", 50) or 50)
+            limit = int(request.args.get("limit", 50) or 50)
         except ValueError:
             limit = 50
         log = self._load(BANGUMI_WATCH_LOG_FILE, [])
