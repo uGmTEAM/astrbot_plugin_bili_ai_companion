@@ -2,7 +2,8 @@
 
 遵循 AstrBot 拓展页约定：
 - 通过 plugin.context.register_web_api 注册路由
-- 路由前缀 /astrbot_plugin_bili_ai_companion
+- 路由前缀 /astrbot_plugin_bili_ai_companion/page
+- 前端 bridge endpoint 形如 "page/<route>"
 - 返回统一 JSON 结构 {ok, data, error}
 """
 from __future__ import annotations
@@ -32,7 +33,7 @@ from .core.config import (
     LEVEL_NAMES,
 )
 
-PAGE_API_PREFIX = f"/{PLUGIN_NAME}"
+PAGE_API_PREFIX = f"/{PLUGIN_NAME}/page"
 
 
 class PluginPageApi:
