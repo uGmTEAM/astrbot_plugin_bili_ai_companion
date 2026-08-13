@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>B站AI伴侣 管理面板</title>
+    <link rel="stylesheet" href="./style.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="title">
+        <span class="logo">📺</span>
+        <h1>B站AI伴侣 管理面板</h1>
+      </div>
+      <div class="actions">
+        <label class="auto">
+          <input id="autoRefresh" type="checkbox" checked />
+          自动刷新（30s）
+        </label>
+        <button id="refreshBtn" class="btn">🔄 刷新</button>
+      </div>
+    </header>
+
+    <!-- 标签栏 -->
+    <nav class="tabs">
+      <button class="tab active" data-tab="status">📊 状态总览</button>
+      <button class="tab" data-tab="memory">🧠 记忆</button>
+      <button class="tab" data-tab="affection">💖 好感度</button>
+      <button class="tab" data-tab="profiles">👤 用户画像</button>
+      <button class="tab" data-tab="personality">🎭 性格</button>
+      <button class="tab" data-tab="logs">📝 日志</button>
+      <button class="tab" data-tab="sync">🧠 记忆模式</button>
+      <button class="tab" data-tab="config">⚙️ 配置</button>
+    </nav>
+
+    <!-- 状态总览 -->
+    <section id="pane-status" class="pane active">
+      <div class="summary" id="summary">加载中…</div>
+      <div class="cards" id="cards"></div>
+      <div class="action-bar">
+        <button id="startBtn" class="btn">▶️ 启动</button>
+        <button id="stopBtn" class="btn warn">⏹️ 停止</button>
+        <button id="refreshCookieBtn" class="btn">🔄 刷新Cookie</button>
+      </div>
+    </section>
+
+    <!-- 记忆 -->
+    <section id="pane-memory" class="pane">
+      <div class="toolbar">
+        <div class="filters">
+          <select id="memLevel">
+            <option value="">全部分级</option>
+            <option value="today">今日</option>
+            <option value="recent">近期</option>
+            <option value="long_term">长期</option>
+          </select>
+          <input id="memSearch" type="search" placeholder="搜索记忆内容…" />
+          <button id="memSearchBtn" class="btn">搜索</button>
+          <button id="memClearBtn" class="btn ghost">清除</button>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>分级</th>
+              <th>内容</th>
+              <th>用户</th>
+              <th>时间</th>
+              <th>状态</th>
+            </tr>
+          </thead>
+          <tbody id="memTbody"></tbody>
+        </table>
+        <p class="empty" id="memEmpty" hidden>暂无记忆。</p>
+      </div>
+      <div class="toolbar">
+        <h3>💎 永久记忆</h3>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>#</th><th>内容</th></tr>
+          </thead>
+          <tbody id="permTbody"></tbody>
+        </table>
+        <p class="empty" id="permEmpty" hidden>暂无永久记忆。</p>
+      </div>
+    </section>
+
+    <!-- 好感度 -->
+    <section id="pane-affection" class="pane">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>UID</th>
+              <th>好感值</th>
+              <th>等级</th>
+              <th class="bar-col">好感条</th>
+            </tr>
+          </thead>
+          <tbody id="affTbody"></tbody>
+        </table>
+        <p class="empty" id="affEmpty" hidden>暂无好感数据。</p>
+      </div>
+    </section>
+
+    <!-- 用户画像 -->
+    <section id="pane-profiles" class="pane">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>UID</th>
+              <th>用户名</th>
+              <th>画像摘要</th>
+              <th>标签</th>
+              <th>更新时间</th>
+            </tr>
+          </thead>
+          <tbody id="profileTbody"></tbody>
+        </table>
+        <p class="empty" id="profileEmpty" hidden>暂无用户画像。</p>
+      </div>
+    </section>
+
+    <!-- 性格 -->
+    <section id="pane-personality" class="pane">
+      <div class="summary" id="personalitySummary">加载中…</div>
+      <pre id="personalityRaw" class="raw-json"></pre>
+    </section>
+
+    <!-- 日志 -->
+    <section id="pane-logs" class="pane">
+      <nav class="sub-tabs">
+        <button class="sub-tab active" data-subtab="watch">📹 看视频</button>
+        <button class="sub-tab" data-subtab="dynamic">📢 动态</button>
+        <button class="sub-tab" data-subtab="reply">💬 回复</button>
+        <button class="sub-tab" data-subtab="bangumi">🎬 番剧</button>
+        <button class="sub-tab" data-subtab="schedule">🎯 计划</button>
+      </nav>
+      <div id="subpane-watch" class="subpane active">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>标题</th><th>BVID</th><th>时间</th></tr></thead>
+            <tbody id="watchTbody"></tbody>
+          </table>
+          <p class="empty" id="watchEmpty" hidden>暂无看视频记录。</p>
+        </div>
+      </div>
+      <div id="subpane-dynamic" class="subpane">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>内容</th><th>时间</th></tr></thead>
+            <tbody id="dynamicTbody"></tbody>
+          </table>
+          <p class="empty" id="dynamicEmpty" hidden>暂无动态记录。</p>
+        </div>
+      </div>
+      <div id="subpane-reply" class="subpane">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>原评论</th><th>回复</th><th>时间</th></tr></thead>
+            <tbody id="replyTbody"></tbody>
+          </table>
+          <p class="empty" id="replyEmpty" hidden>暂无回复记录。</p>
+        </div>
+      </div>
+      <div id="subpane-bangumi" class="subpane">
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>#</th><th>标题</th><th>集数</th><th>时间</th></tr></thead>
+            <tbody id="bangumiTbody"></tbody>
+          </table>
+          <p class="empty" id="bangumiEmpty" hidden>暂无番剧记录。</p>
+        </div>
+      </div>
+      <div id="subpane-schedule" class="subpane">
+        <div class="summary" id="scheduleSummary">加载中…</div>
+      </div>
+    </section>
+
+    <!-- 记忆同步 -->
+    <section id="pane-sync" class="pane">
+      <div class="summary" id="syncSummary">加载中…</div>
+      <div class="action-bar">
+        <button id="syncRunBtn" class="btn">🔄 手动同步一次</button>
+      </div>
+      <div class="info-box" id="syncInfo"></div>
+    </section>
+
+    <!-- 配置 -->
+    <section id="pane-config" class="pane">
+      <div class="summary">插件配置概览（敏感字段已脱敏）</div>
+      <pre id="configRaw" class="raw-json">加载中…</pre>
+    </section>
+
+    <!-- Toast 容器 -->
+    <div id="toastBox" class="toast-box"></div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
