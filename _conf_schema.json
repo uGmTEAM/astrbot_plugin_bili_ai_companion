@@ -7,8 +7,6 @@
     "OWNER_NAME": {"description": "【账号】主人名称（用于提示词）", "type": "string", "default": ""},
     "OWNER_BILI_NAME": {"description": "【账号】主人的B站昵称（用于评论区@推荐）", "type": "string", "default": ""},
     "LLM_PROVIDER_ID": {"description": "【人设】选择用于回复/记忆压缩的LLM（留空用AstrBot默认）", "type": "string", "default": "", "_special": "select_provider"},
-    "USE_ASTRBOT_PERSONA": {"description": "【人设】使用AstrBot自带人设（首选提示词）", "type": "bool", "default": true, "hint": "开启后使用AstrBot默认人设系统，关闭后使用自定义提示词"},
-    "CUSTOM_SYSTEM_PROMPT": {"description": "【人设】自定义系统提示词（USE_ASTRBOT_PERSONA关闭时使用）", "type": "text", "default": "你是一个活跃在B站的角色，会回复评论、看视频、发动态。用自然的口语化风格交流。"},
     "MEMORY_SYNC_MODE": {"description": "【记忆模式】记忆系统工作模式", "type": "string", "default": "dual", "options": ["standalone", "dual", "companion"], "hint": "standalone=仅本地B站记忆，不同步；dual=本地B站记忆+同步到memory_companion（推荐）；companion=优先写入memory_companion，本地仅作缓存不主动写入"},
     "ENABLE_REPLY": {"description": "【功能开关】启用评论自动回复", "type": "bool", "default": true},
     "POLL_INTERVAL": {"description": "【回复】评论轮询间隔（秒）", "type": "int", "default": 20, "hint": "建议 15-60 秒"},
