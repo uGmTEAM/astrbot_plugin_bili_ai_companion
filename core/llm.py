@@ -21,19 +21,15 @@ class LLMMixin:
             return None
 
     async def _get_system_prompt(self):
-        # USE_ASTRBOT_PERSONA 为 True 时：使用 AstrBot 默认人设系统，
+        # 强制使用 AstrBot 默认人设系统：
         # 通过 get_using_provider() 获取默认 provider，不覆盖 system_prompt，
         # 让 AstrBot 自带的人设 prompt 自然生效。
-        if self.config.get("USE_ASTRBOT_PERSONA", True):
-            try:
-                provider = self.context.get_using_provider()
-                if provider is None:
-                    logger.warning("[BiliBot] 未获取到默认 provider，将回退到自定义提示词")
-                    return self.config.get("CUSTOM_SYSTEM_PROMPT", "你是一个活跃在B站的角色，会回复评论、看视频、发动态。用自然的口语化风格交流。")
-            except Exception as e:
-                logger.warning(f"[BiliBot] 获取默认 provider 失败，将使用自定义提示词: {e}")
-                return self.config.get("CUSTOM_SYSTEM_PROMPT", "你是一个活跃在B站的角色，会回复评论、看视频、发动态。用自然的口语化风格交流。")
-            # 不覆盖 system_prompt，交由 AstrBot 默认人设系统处理
-            return ""
-        # USE_ASTRBOT_PERSONA 为 False 时：使用自定义系统提示词
-        return self.config.get("CUSTOM_SYSTEM_PROMPT", "你是一个活跃在B站的角色，会回复评论、看视频、发动态。用自然的口语化风格交流。")
+        # 不再支持自定义系统提示词分支。
+        try:
+            provider = self.context.get_using_provider()
+            if provider is None:
+                logger.warning("[BiliBot] 未获取到默认 provider，将不设置 system_prompt（仍由 AstrBot 人设兜底）")
+        except Exception as e:
+            logger.warning(f"[BiliBot] 获取默认 provider 失败，将不设置 system_prompt: {e}")
+        # 不覆盖 system_prompt，交由 AstrBot 默认人设系统处理
+        return ""
