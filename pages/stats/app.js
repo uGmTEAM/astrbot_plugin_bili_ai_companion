@@ -88,19 +88,24 @@ function isBridgeLooseValid(b) {
   return typeof b.apiGet === "function" || typeof b.apiPost === "function";
 }
 
-_bridge = findBridge("strict");
-if (!_bridge) _bridge = findBridge("loose");
+// 初始不立即判定，由 initBridge() 异步探测
+_bridge = null;
 
-if (_bridge) {
-  if (typeof _bridge.ready !== "function") _bridge.ready = () => Promise.resolve();
-  if (typeof _bridge.apiGet !== "function") {
-    _bridge.apiGet = () => Promise.reject(new Error("bridge 不支持 apiGet，已切直连"));
+function _applyBridge(b) {
+  if (!b) return false;
+  if (typeof b.ready !== "function") b.ready = () => Promise.resolve();
+  if (typeof b.apiGet !== "function") {
+    b.apiGet = () => Promise.reject(new Error("bridge 不支持 apiGet"));
   }
-  if (typeof _bridge.apiPost !== "function") {
-    _bridge.apiPost = () => Promise.reject(new Error("bridge 不支持 apiPost，已切直连"));
+  if (typeof b.apiPost !== "function") {
+    b.apiPost = () => Promise.reject(new Error("bridge 不支持 apiPost"));
   }
-} else {
-  // 兜底直连模式
+  _bridge = b;
+  _fallbackFetch = false;
+  return true;
+}
+
+function _applyFallbackFetch() {
   _fallbackFetch = true;
   _bridge = {
     ready: () => Promise.resolve(),
@@ -109,16 +114,40 @@ if (_bridge) {
   };
 }
 
+// 轮询等待 bridge 注入（AstrBot 可能异步注入 window.AstrBotPluginPage）
+function waitForBridge(timeout = 6000, interval = 150) {
+  return new Promise((resolve) => {
+    const tryFind = () => findBridge("strict") || findBridge("loose");
+    const b = tryFind();
+    if (b) return resolve(b);
+    const start = Date.now();
+    const timer = setInterval(() => {
+      const found = tryFind();
+      if (found || Date.now() - start >= timeout) {
+        clearInterval(timer);
+        resolve(found);
+      }
+    }, interval);
+  });
+}
+
+// 一次性初始化：先轮询等待 bridge，超时则降级到直连
+async function initBridge() {
+  const b = await waitForBridge(6000);
+  if (b && _applyBridge(b)) {
+    return;
+  }
+  _applyFallbackFetch();
+}
+
 async function ensureBridgeReady() {
   try {
     if (typeof _bridge.ready === "function") await _bridge.ready();
   } catch (_) {}
-  // ready 之后再探测一次
-  if (_fallbackFetch) return;
+  // ready 后强制重新探测（即使当前是 fallback 模式）
   const postReady = findBridge("strict") || findBridge("loose");
   if (postReady) {
-    if (typeof postReady.apiGet === "function") _bridge.apiGet = (p, q) => postReady.apiGet(p, q);
-    if (typeof postReady.apiPost === "function") _bridge.apiPost = (p, b) => postReady.apiPost(p, b);
+    _applyBridge(postReady);
   }
 }
 
@@ -197,11 +226,30 @@ async function fetchJson(path, method, body, qs) {
 // ---------------------------------------------------------------------
 
 async function apiGet(path, params) {
-  return _bridge.apiGet(buildEndpoint(path), params);
+  const ep = buildEndpoint(path);
+  try {
+    return await _bridge.apiGet(ep, params);
+  } catch (e) {
+    // bridge 调用失败，降级到直连 fetch
+    if (!_fallbackFetch) {
+      _applyFallbackFetch();
+      return await _bridge.apiGet(ep, params);
+    }
+    throw e;
+  }
 }
 
 async function apiPost(path, body) {
-  return _bridge.apiPost(buildEndpoint(path), body);
+  const ep = buildEndpoint(path);
+  try {
+    return await _bridge.apiPost(ep, body);
+  } catch (e) {
+    if (!_fallbackFetch) {
+      _applyFallbackFetch();
+      return await _bridge.apiPost(ep, body);
+    }
+    throw e;
+  }
 }
 
 // ---------------------------------------------------------------------
@@ -706,7 +754,8 @@ function setupAutoRefresh() {
 // ---------------------------------------------------------------------
 
 (async function init() {
-  await ensureBridgeReady();
+  await initBridge();      // 轮询等待 bridge 注入，超时降级到直连
+  await ensureBridgeReady(); // ready 后再探测一次
   loadStatus();
   setupAutoRefresh();
 })();
