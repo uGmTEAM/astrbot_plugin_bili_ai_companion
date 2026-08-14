@@ -105,10 +105,10 @@ pip install yt-dlp ffmpeg-python
 
 ### 人设
 
+> 强制使用 AstrBot 自带人设系统，无自定义提示词开关。
+
 | 配置项 | 默认 | 说明 |
 |--------|------|------|
-| `USE_ASTRBOT_PERSONA` | `true` | 使用 AstrBot 自带人设系统（首选提示词），**推荐开启** |
-| `CUSTOM_SYSTEM_PROMPT` | 通用B站角色提示词 | 关闭 AstrBot 人设时使用的自定义系统提示词 |
 | `LLM_PROVIDER_ID` | 空（用AstrBot默认） | 选择用于回复/记忆压缩的LLM提供商 |
 
 ### 功能开关
