@@ -462,28 +462,6 @@ UP主：{video_info.get('up_name', '未知')}
     # ── 视频下载 / 压缩 / 截帧 ──
 
     # 分辨率回退链：先尝试无需合并的 MP4，避免无 ffmpeg 时只留下 m4a；再尝试高质量音视频合并。
-    def _format_fallbacks(self, max_height=480):
-        try:
-            cap = max(144, int(max_height or 480))
-        except Exception:
-            cap = 480
-        heights = [h for h in (360, 480, 720) if h <= cap]
-        if not heights:
-            heights = [cap]
-        elif heights[-1] != cap and cap not in (360, 480, 720):
-            heights.append(cap)
-
-        formats = []
-        for h in heights:
-            formats.extend([
-                f"best[ext=mp4][vcodec!=none][acodec!=none][height<={h}]/best[height<={h}][vcodec!=none][acodec!=none]",
-                f"bestvideo[ext=mp4][height<={h}]+bestaudio[ext=m4a]/bestvideo[height<={h}]+bestaudio/best[height<={h}]",
-            ])
-        formats.extend([
-            "bestvideo+bestaudio/best",
-            "worst[ext=mp4][vcodec!=none]/worst[vcodec!=none]",
-        ])
-        return formats
     _VIDEO_FILE_EXTS = {".mp4", ".mkv", ".webm", ".mov"}
     _AUDIO_FILE_EXTS = {".m4a", ".mp3", ".aac", ".opus", ".flac", ".wav"}
 
@@ -534,9 +512,10 @@ UP主：{video_info.get('up_name', '未知')}
             logger.warning(f"[BiliBot] Cookie文件写入失败: {e}")
             return None
 
+        fallback_formats = self._video_download_format_fallbacks(max_height)
         last_err = ""
         try:
-            for fmt in self._format_fallbacks(max_height):
+            for fmt in fallback_formats:
                 # 清理上一轮可能残留的部分文件
                 self._cleanup_partial_downloads(bvid)
                 code, _, stderr = await self._run_process(
@@ -553,6 +532,16 @@ UP主：{video_info.get('up_name', '未知')}
                 if code == 0:
                     fp = self._pick_downloaded_video_file(bvid)
                     if fp:
+                        # ✅ 下载后校验是否存在音频流，没有则继续尝试下一个格式
+                        has_audio = await self._has_audio_stream(fp)
+                        if not has_audio:
+                            last_err = f"文件 {os.path.basename(fp)} 缺少音频流（纯视频DASH流），已丢弃"
+                            logger.warning(f"[BiliBot] {last_err}({bvid})，格式: {fmt}")
+                            try:
+                                os.remove(fp)
+                            except OSError:
+                                pass
+                            continue
                         logger.info(f"[BiliBot] 视频下载成功({bvid})，格式: {fmt}，文件: {os.path.basename(fp)}")
                         return fp
                     last_err = "yt-dlp 成功退出，但没有产出可发送的视频文件（可能只下载到音频）"

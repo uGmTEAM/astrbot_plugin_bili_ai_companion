@@ -954,19 +954,8 @@ class BilibiliAPIMixin:
             logger.warning(f"[BiliBot] Cookie文件写入失败: {e}")
             return None
 
-        # 格式回退：从高到低尝试
-        height_map = {1080: "127", 720: "80", 480: "32", 360: "16"}
-        height = max_height if max_height in height_map else 480
-        format_chain = []
-        for h in [height, 720, 480, 360]:
-            if h not in format_chain:
-                format_chain.append(h)
-        # 加一个纯音频+视频兜底格式
-        fallback_formats = []
-        for h in format_chain:
-            qn = height_map[h]
-            fallback_formats.append(f"mp4[height<=?{h}]/bestvideo[height<=?{h}]+bestaudio/best[height<=?{h}]")
-        fallback_formats.append("best")
+        # 格式回退：优先保证同时带有视频 + 音频流，避免命中 B 站 DASH 纯视频 mp4 流
+        fallback_formats = self._video_download_format_fallbacks(max_height)
 
         last_err = ""
         try:
@@ -987,9 +976,20 @@ class BilibiliAPIMixin:
                 if code == 0:
                     fp = self._pick_downloaded_video_file(bvid)
                     if fp:
+                        # ✅ 关键：下载后校验是否存在音频流，没有则继续尝试下一个格式
+                        has_audio = await self._has_audio_stream(fp)
+                        if not has_audio:
+                            last_err = f"文件 {os.path.basename(fp)} 缺少音频流（纯视频DASH流），已丢弃"
+                            logger.warning(f"[BiliBot] {last_err}({bvid})，格式: {fmt}")
+                            try:
+                                os.remove(fp)
+                            except OSError:
+                                pass
+                            continue
                         logger.info(f"[BiliBot] 视频下载成功({bvid})，格式: {fmt}，文件: {os.path.basename(fp)}")
                         return fp
                     last_err = "yt-dlp 成功退出，但没有产出可发送的视频文件（可能只下载到音频）"
+                    logger.info(f"[BiliBot] {last_err}({bvid})，尝试下一个格式")
                     continue
                 last_err = stderr[:200] if stderr else "unknown error"
                 logger.info(f"[BiliBot] 格式 {fmt} 下载失败({bvid})，尝试下一个: {last_err[:80]}")

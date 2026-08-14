@@ -248,6 +248,61 @@ class UtilsMixin:
             },
         }
 
+    async def _has_audio_stream(self, video_path):
+        """用 ffprobe 检查视频文件是否包含至少一条音频流。
+        ffprobe 不存在或检查失败时返回 True（避免误删可用的文件）。
+        """
+        if not video_path or not os.path.isfile(video_path):
+            return False
+        code, stdout, _ = await self._run_process(
+            "ffprobe", "-v", "error",
+            "-show_entries", "stream=codec_type",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            video_path, timeout=30,
+        )
+        if code != 0:
+            # ffprobe 不可用：保守放行（用户可能没装，但 yt-dlp 默认会带音）
+            return True
+        types = [line.strip() for line in (stdout or "").splitlines() if line.strip()]
+        has_video = any(t == "video" for t in types)
+        has_audio = any(t == "audio" for t in types)
+        # 只当明确确认有视频但无音频时判定为缺失
+        if has_video and not has_audio:
+            return False
+        return True
+
+    def _video_download_format_fallbacks(self, max_height=480):
+        """yt-dlp 下载格式回退链。
+        核心原则：优先保证「音轨存在」，避免匹配 B 站 DASH 纯视频 mp4 流。
+        语法参考（yt-dlp format selector）：/ 为 OR，+ 为合并音视频流。
+        """
+        try:
+            cap = max(144, int(max_height or 480))
+        except Exception:
+            cap = 480
+        heights = [h for h in (360, 480, 720, 1080) if h <= cap]
+        if not heights:
+            heights = [cap]
+        elif heights[-1] != cap and cap not in (360, 480, 720, 1080):
+            heights.append(cap)
+
+        formats = []
+        for h in heights:
+            formats.extend([
+                # 1) 单一 mp4 文件：必须同时有视频编码和音频编码
+                f"best[ext=mp4][vcodec!=none][acodec!=none][height<={h}]",
+                # 2) 合并流：最佳 mp4 视频 + 最佳 m4a 音频（B站最常见组合）
+                f"bestvideo[ext=mp4][height<={h}]+bestaudio[ext=m4a]",
+                # 3) 放宽扩展：只要是视频 + 音频都带的最好流
+                f"bestvideo[height<={h}]+bestaudio/best[height<={h}]",
+            ])
+        # 兜底（不限制高度，但仍然要求合并流带音）
+        formats.extend([
+            "bestvideo+bestaudio/best",
+            "worst[ext=mp4][vcodec!=none][acodec!=none]/worst[vcodec!=none][acodec!=none]",
+        ])
+        return formats
+
     def _log_environment_warnings(self):
         env = self._get_environment_status()
         missing_commands = [name for name, ok in env["external_commands"].items() if not ok]
