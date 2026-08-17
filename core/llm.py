@@ -21,15 +21,15 @@ class LLMMixin:
             return None
 
     async def _get_system_prompt(self):
-        # 强制使用 AstrBot 默认人设系统：
-        # 通过 get_using_provider() 获取默认 provider，不覆盖 system_prompt，
-        # 让 AstrBot 自带的人设 prompt 自然生效。
-        # 不再支持自定义系统提示词分支。
-        try:
-            provider = self.context.get_using_provider()
-            if provider is None:
-                logger.warning("[BiliBot] 未获取到默认 provider，将不设置 system_prompt（仍由 AstrBot 人设兜底）")
-        except Exception as e:
-            logger.warning(f"[BiliBot] 获取默认 provider 失败，将不设置 system_prompt: {e}")
-        # 不覆盖 system_prompt，交由 AstrBot 默认人设系统处理
-        return ""
+        # 优先使用 AstrBot 自带人设（让用户在 AstrBot 控制台统一管理 Bot 人设）；
+        # 关闭或读取失败时回退到 CUSTOM_SYSTEM_PROMPT，保证 LLM 始终有 system role 兜底。
+        # 没有 system_prompt 会让 _llm_call 不传 system_prompt 字段，导致 LLM 完全没人设，
+        # 回复风格漂移、JSON 解析失败率上升，进而让评论自动回复看起来“没成功回复”。
+        if self.config.get("USE_ASTRBOT_PERSONA", True):
+            try:
+                persona = await self.context.persona_manager.get_default_persona_v3()
+                if persona and persona.get("prompt"):
+                    return persona["prompt"]
+            except Exception as e:
+                logger.warning(f"[BiliBot] 读取AstrBot自带人设失败，将使用自定义提示词: {e}")
+        return self.config.get("CUSTOM_SYSTEM_PROMPT", "你是一个活跃在B站的角色，会回复评论、看视频、发动态。用自然的口语化风格交流。")
